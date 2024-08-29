@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -10,26 +12,22 @@ import (
 	"time"
 )
 
+// Constants and global variables
+const (
+	customDNSFile = "custom_dns.json"
+)
+
 var dnsServers = map[string][]string{
-	"403": {
-		"10.202.10.202",
-		"10.202.10.102",
-	},
-	"Shecan": {
-		"178.22.122.100",
-		"185.51.200.2",
-	},
-	"Begzar": {
-		"185.55.226.26",
-		"185.55.225.25",
-	},
+	"403":    {"10.202.10.202", "10.202.10.102"},
+	"Shecan": {"178.22.122.100", "185.51.200.2"},
+	"Begzar": {"185.55.226.26", "185.55.225.25"},
 }
 
+var dnsOrder = []string{"403", "Shecan", "Begzar"}
+
+// Main function and core logic
 func main() {
-	fmt.Println("Welcome to DNSwitch!")
-	fmt.Println("Warning: This program requires administrator privileges to change DNS settings.")
-	fmt.Println("Please make sure you're running this program as an administrator.")
-	fmt.Println()
+	printWelcomeMessage()
 
 	interfaceName, err := getActiveInterfaceName()
 	if err != nil {
@@ -38,50 +36,18 @@ func main() {
 	}
 	fmt.Printf("Detected active interface: %s\n", interfaceName)
 
+	loadCustomDNS()
+
 	for {
-		currentDNSName, currentDNSAddresses := getCurrentDNS(interfaceName)
-		fmt.Printf("Current DNS: %s\n", currentDNSName)
-		if len(currentDNSAddresses) > 0 {
-			fmt.Printf("Addresses: %s\n", strings.Join(currentDNSAddresses, ", "))
-		}
-		fmt.Println()
+		displayCurrentDNS(interfaceName)
+		displayMenu()
 
-		fmt.Println("Available options:")
-		options := make([]string, 0, len(dnsServers))
-		for name := range dnsServers {
-			options = append(options, name)
-		}
-		for i, name := range options {
-			ips := dnsServers[name]
-			fmt.Printf("%d. %s: %s\n", i+1, name, strings.Join(ips, ", "))
-		}
-		fmt.Printf("%d. Clear all DNS settings\n", len(options)+1)
-		fmt.Printf("%d. Exit\n", len(options)+2)
-		fmt.Println()
+		choice := getUserChoice(len(dnsServers) + 4)
 
-		choice := getUserChoice(len(options) + 2)
-
-		if choice == len(options)+2 {
+		if handleUserChoice(choice, interfaceName) {
 			break
 		}
 
-		if choice == len(options)+1 {
-			err := clearAllDNS(interfaceName)
-			if err != nil {
-				fmt.Printf("Error clearing DNS settings: %v\n", err)
-			} else {
-				fmt.Println("All DNS settings have been cleared.")
-			}
-		} else {
-			selectedDNS := options[choice-1]
-			ips := dnsServers[selectedDNS]
-			err := setDNS(interfaceName, ips...)
-			if err != nil {
-				fmt.Printf("Error setting DNS: %v\n", err)
-			} else {
-				fmt.Printf("DNS changed to %s (%s).\n", selectedDNS, strings.Join(ips, ", "))
-			}
-		}
 		fmt.Println()
 		time.Sleep(2 * time.Second)
 	}
@@ -89,6 +55,163 @@ func main() {
 	fmt.Println("Thank you for using DNSwitch!")
 }
 
+func printWelcomeMessage() {
+	fmt.Println("Welcome to DNSwitch!")
+	fmt.Println("Warning: This program requires administrator privileges to change DNS settings.")
+	fmt.Println("Please make sure you're running this program as an administrator.")
+	fmt.Println()
+}
+
+func displayCurrentDNS(interfaceName string) {
+	currentDNSName, currentDNSAddresses := getCurrentDNS(interfaceName)
+	fmt.Printf("Current DNS: %s\n", currentDNSName)
+	if len(currentDNSAddresses) > 0 {
+		fmt.Printf("Addresses: %s\n", strings.Join(currentDNSAddresses, ", "))
+	}
+	fmt.Println()
+}
+
+func displayMenu() {
+	fmt.Println("Available options:")
+	options := getOrderedDNSOptions()
+	for i, name := range options {
+		ips := dnsServers[name]
+		fmt.Printf("%d. %s: %s\n", i+1, name, strings.Join(ips, ", "))
+	}
+	fmt.Printf("%d. Add custom DNS\n", len(options)+1)
+	fmt.Printf("%d. Remove custom DNS\n", len(options)+2)
+	fmt.Printf("%d. Clear all DNS settings\n", len(options)+3)
+	fmt.Printf("%d. Exit\n", len(options)+4)
+	fmt.Println()
+}
+
+func handleUserChoice(choice int, interfaceName string) bool {
+	options := getOrderedDNSOptions()
+
+	switch {
+	case choice <= len(options):
+		selectedDNS := options[choice-1]
+		ips := dnsServers[selectedDNS]
+		err := setDNS(interfaceName, ips...)
+		if err != nil {
+			fmt.Printf("Error setting DNS: %v\n", err)
+		} else {
+			fmt.Printf("DNS changed to %s (%s).\n", selectedDNS, strings.Join(ips, ", "))
+		}
+	case choice == len(options)+1:
+		addCustomDNS()
+	case choice == len(options)+2:
+		removeCustomDNS()
+	case choice == len(options)+3:
+		err := clearAllDNS(interfaceName)
+		if err != nil {
+			fmt.Printf("Error clearing DNS settings: %v\n", err)
+		} else {
+			fmt.Println("All DNS settings have been cleared.")
+		}
+	case choice == len(options)+4:
+		return true
+	}
+	return false
+}
+
+// DNS-related functions
+func getCurrentDNS(interfaceName string) (string, []string) {
+	cmd := getDNSCommand(interfaceName)
+	if cmd == nil {
+		return "Unknown", nil
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "Unknown", nil
+	}
+
+	dnsAddresses := removeDuplicates(strings.Fields(string(output)))
+
+	dnsName := "Unknown"
+	for name, ips := range dnsServers {
+		if containsAny(dnsAddresses, ips) {
+			dnsName = name
+			break
+		}
+	}
+
+	return dnsName, dnsAddresses
+}
+
+func setDNS(interfaceName string, ips ...string) error {
+	switch runtime.GOOS {
+	case "windows":
+		return setDNSWindows(interfaceName, ips...)
+	case "darwin":
+		return setDNSMacOS(interfaceName, ips...)
+	case "linux":
+		return setDNSLinux(ips...)
+	default:
+		return fmt.Errorf("OS %s is not supported", runtime.GOOS)
+	}
+}
+
+func clearAllDNS(interfaceName string) error {
+	cmd := getClearDNSCommand(interfaceName)
+	if cmd == nil {
+		return fmt.Errorf("OS %s is not supported", runtime.GOOS)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v: %s", err, string(output))
+	}
+	return nil
+}
+
+func addCustomDNS() {
+	var name, ip1, ip2 string
+
+	fmt.Print("Enter DNS name: ")
+	fmt.Scanln(&name)
+
+	fmt.Print("Enter first IP address: ")
+	fmt.Scanln(&ip1)
+
+	fmt.Print("Enter second IP address: ")
+	fmt.Scanln(&ip2)
+
+	dnsServers[name] = []string{ip1, ip2}
+	saveCustomDNS()
+	fmt.Printf("Custom DNS '%s' added successfully.\n", name)
+}
+
+func removeCustomDNS() {
+	customDNS := getCustomDNSList()
+
+	if len(customDNS) == 0 {
+		fmt.Println("No custom DNS servers found.")
+		return
+	}
+
+	fmt.Println("Custom DNS servers:")
+	for i, name := range customDNS {
+		ips := dnsServers[name]
+		fmt.Printf("%d. %s: %s\n", i+1, name, strings.Join(ips, ", "))
+	}
+	fmt.Printf("%d. Exit\n", len(customDNS)+1)
+
+	choice := getUserChoice(len(customDNS) + 1)
+
+	if choice == len(customDNS)+1 {
+		fmt.Println("Exiting remove custom DNS menu.")
+		return
+	}
+
+	name := customDNS[choice-1]
+	delete(dnsServers, name)
+	saveCustomDNS()
+	fmt.Printf("Custom DNS '%s' removed successfully.\n", name)
+}
+
+// Helper functions
 func getUserChoice(maxChoice int) int {
 	for {
 		var choice string
@@ -128,54 +251,133 @@ func getActiveInterfaceName() (string, error) {
 	return "", fmt.Errorf("no active network interface found")
 }
 
-func getCurrentDNS(interfaceName string) (string, []string) {
-	var cmd *exec.Cmd
+func getOrderedDNSOptions() []string {
+	options := make([]string, 0, len(dnsServers))
 
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("powershell", "-Command", fmt.Sprintf("(Get-DnsClientServerAddress -InterfaceAlias '%s' -AddressFamily IPv4).ServerAddresses", interfaceName))
-	case "darwin":
-		cmd = exec.Command("networksetup", "-getdnsservers", interfaceName)
-	case "linux":
-		cmd = exec.Command("cat", "/etc/resolv.conf")
-	default:
-		return "Unknown", nil
-	}
-
-	output, err := cmd.Output()
-	if err != nil {
-		return "Unknown", nil
-	}
-
-	dnsAddresses := strings.Fields(string(output))
-	uniqueDNSAddresses := removeDuplicates(dnsAddresses)
-
-	dnsName := "Unknown"
-	for name, ips := range dnsServers {
-		for _, ip := range ips {
-			if contains(uniqueDNSAddresses, ip) {
-				dnsName = name
-				break
-			}
-		}
-		if dnsName != "Unknown" {
-			break
+	// First, add the default DNS options in the specified order
+	for _, name := range dnsOrder {
+		if _, exists := dnsServers[name]; exists {
+			options = append(options, name)
 		}
 	}
 
-	return dnsName, uniqueDNSAddresses
+	// Then, add any custom DNS options
+	for name := range dnsServers {
+		if !isDefaultDNS(name) {
+			options = append(options, name)
+		}
+	}
+
+	return options
 }
 
-func setDNS(interfaceName string, ips ...string) error {
+func getCustomDNSList() []string {
+	customDNS := make([]string, 0)
+	for name := range dnsServers {
+		if !isDefaultDNS(name) {
+			customDNS = append(customDNS, name)
+		}
+	}
+	return customDNS
+}
+
+func isDefaultDNS(name string) bool {
+	return containsString(dnsOrder, name)
+}
+
+func removeDuplicates(slice []string) []string {
+	keys := make(map[string]bool)
+	list := []string{}
+	for _, entry := range slice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
+}
+
+func containsString(slice []string, item string) bool {
+	for _, a := range slice {
+		if a == item {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAny(slice []string, items []string) bool {
+	for _, item := range items {
+		if containsString(slice, item) {
+			return true
+		}
+	}
+	return false
+}
+
+// File operations
+func loadCustomDNS() {
+	data, err := os.ReadFile(customDNSFile)
+	if err != nil {
+		return
+	}
+
+	var customDNS map[string][]string
+	err = json.Unmarshal(data, &customDNS)
+	if err != nil {
+		fmt.Printf("Error loading custom DNS: %v\n", err)
+		return
+	}
+
+	for name, ips := range customDNS {
+		dnsServers[name] = ips
+	}
+}
+
+func saveCustomDNS() {
+	customDNS := make(map[string][]string)
+	for name, ips := range dnsServers {
+		if !isDefaultDNS(name) {
+			customDNS[name] = ips
+		}
+	}
+
+	data, err := json.Marshal(customDNS)
+	if err != nil {
+		fmt.Printf("Error saving custom DNS: %v\n", err)
+		return
+	}
+
+	err = os.WriteFile(customDNSFile, data, 0644)
+	if err != nil {
+		fmt.Printf("Error writing custom DNS file: %v\n", err)
+	}
+}
+
+// OS-specific functions
+func getDNSCommand(interfaceName string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "windows":
-		return setDNSWindows(interfaceName, ips...)
+		return exec.Command("powershell", "-Command", fmt.Sprintf("(Get-DnsClientServerAddress -InterfaceAlias '%s' -AddressFamily IPv4).ServerAddresses", interfaceName))
 	case "darwin":
-		return setDNSDarwin(interfaceName, ips...)
+		return exec.Command("networksetup", "-getdnsservers", interfaceName)
 	case "linux":
-		return setDNSLinux(ips...)
+		return exec.Command("cat", "/etc/resolv.conf")
 	default:
-		return fmt.Errorf("OS %s is not supported", runtime.GOOS)
+		return nil
+	}
+}
+
+func getClearDNSCommand(interfaceName string) *exec.Cmd {
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("powershell", "-Command", fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias '%s' -ResetServerAddresses", interfaceName))
+	case "darwin":
+		return exec.Command("networksetup", "-setdnsservers", interfaceName, "Empty")
+	case "linux":
+		return exec.Command("sudo", "sh", "-c", "echo '' > /etc/resolv.conf")
+	default:
+		return nil
 	}
 }
 
@@ -189,7 +391,7 @@ func setDNSWindows(interfaceName string, ips ...string) error {
 	return nil
 }
 
-func setDNSDarwin(interfaceName string, ips ...string) error {
+func setDNSMacOS(interfaceName string, ips ...string) error {
 	args := append([]string{"-setdnsservers", interfaceName}, ips...)
 	cmd := exec.Command("networksetup", args...)
 	output, err := cmd.CombinedOutput()
@@ -210,51 +412,4 @@ func setDNSLinux(ips ...string) error {
 		return fmt.Errorf("%v: %s", err, string(output))
 	}
 	return nil
-}
-
-func clearAllDNS(interfaceName string) error {
-	switch runtime.GOOS {
-	case "windows":
-		cmd := exec.Command("powershell", "-Command", fmt.Sprintf("Set-DnsClientServerAddress -InterfaceAlias '%s' -ResetServerAddresses", interfaceName))
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%v: %s", err, string(output))
-		}
-	case "darwin":
-		cmd := exec.Command("networksetup", "-setdnsservers", interfaceName, "Empty")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%v: %s", err, string(output))
-		}
-	case "linux":
-		cmd := exec.Command("sudo", "sh", "-c", "echo '' > /etc/resolv.conf")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%v: %s", err, string(output))
-		}
-	default:
-		return fmt.Errorf("OS %s is not supported", runtime.GOOS)
-	}
-	return nil
-}
-
-func removeDuplicates(slice []string) []string {
-	keys := make(map[string]bool)
-	list := []string{}
-	for _, entry := range slice {
-		if _, value := keys[entry]; !value {
-			keys[entry] = true
-			list = append(list, entry)
-		}
-	}
-	return list
-}
-
-func contains(slice []string, item string) bool {
-	for _, a := range slice {
-		if a == item {
-			return true
-		}
-	}
-	return false
 }
