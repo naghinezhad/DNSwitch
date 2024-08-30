@@ -4,7 +4,7 @@ DNSwitch is a cross-platform command-line tool for easily managing and switching
 
 ## Features
 
-- Switch between predefined DNS servers (403, Shecan, Begzar)
+- Switch between predefined DNS servers (403, Shecan, Begzar, Electrotm)
 - Add and remove custom DNS servers
 - Clear all DNS settings
 - Automatically detect the active network interface

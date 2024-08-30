@@ -24,7 +24,7 @@ var dnsServers = map[string][]string{
 	"electrotm": {"78.157.42.101", "78.157.42.100"},
 }
 
-var dnsOrder = []string{"403", "Shecan", "Begzar"}
+var dnsOrder = []string{"403", "Shecan", "Begzar", "electrotm"}
 
 // Main function and core logic
 func main() {
