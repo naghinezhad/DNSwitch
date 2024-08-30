@@ -13,7 +13,7 @@ DNSwitch is a cross-platform command-line tool for easily managing and switching
 
 ## Requirements
 
-- Go 1.16 or later
+- Go 1.23.0
 - Administrator/root privileges (for changing DNS settings)
 
 ## Installation
