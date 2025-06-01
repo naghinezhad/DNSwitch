@@ -13,10 +13,22 @@ DNSwitch is a cross-platform command-line tool for easily managing and switching
 
 ## Requirements
 
-- Go 1.23.2
+- Go 1.23.4
 - Administrator/root privileges (for changing DNS settings)
 
 ## Installation
+
+You can install DNSwitch using one of the following methods:
+
+### Method 1: Using go install (Recommended)
+
+```
+go install github.com/naghinezhad/DNSwitch@latest
+```
+
+This will install the latest version of DNSwitch directly to your `$GOPATH/bin` or `$GOBIN` directory.
+
+### Method 2: Build from source
 
 1. Clone the repository:
 
@@ -40,13 +52,23 @@ DNSwitch is a cross-platform command-line tool for easily managing and switching
 Run the program with administrator/root privileges:
 
 - On Windows:
-  Right-click on the Command Prompt or PowerShell and select "Run as administrator", then navigate to the program directory and run:
+  Right-click on the Command Prompt or PowerShell and select "Run as administrator", then run:
 
+  ```
+  DNSwitch
+  ```
+
+  If you built from source, navigate to the program directory and run:
   ```
   .\DNSwitch.exe
   ```
 
 - On Linux/macOS:
+  ```
+  sudo DNSwitch
+  ```
+
+  If you built from source, navigate to the program directory and run:
   ```
   sudo ./DNSwitch
   ```
