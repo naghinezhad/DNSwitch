@@ -227,29 +227,83 @@ func getUserChoice(maxChoice int) int {
 	}
 }
 
-func getActiveInterfaceName() (string, error) {
-	interfaces, err := net.Interfaces()
+func getMacOSNetworkServiceName() (string, error) {
+	cmd := exec.Command("networksetup", "-listallnetworkservices")
+	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to list network services: %v", err)
 	}
 
-	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
-			addrs, err := iface.Addrs()
-			if err != nil {
-				continue
+	services := strings.Split(strings.TrimSpace(string(output)), "\n")
+
+	if len(services) > 1 {
+		services = services[1:]
+	}
+
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service == "" || strings.HasPrefix(service, "*") {
+			continue
+		}
+
+		dnsCmd := exec.Command("networksetup", "-getdnsservers", service)
+		dnsOutput, err := dnsCmd.Output()
+		if err == nil {
+			dnsResult := strings.TrimSpace(string(dnsOutput))
+			if !strings.Contains(dnsResult, "There aren't any DNS Servers set") {
+				return service, nil
 			}
-			for _, addr := range addrs {
-				if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-					if ipnet.IP.To4() != nil {
-						return iface.Name, nil
-					}
-				}
+		}
+
+		ipCmd := exec.Command("networksetup", "-getinfo", service)
+		ipOutput, err := ipCmd.Output()
+		if err == nil {
+			ipResult := string(ipOutput)
+			if strings.Contains(ipResult, "IP address:") &&
+				!strings.Contains(ipResult, "IP address: (null)") &&
+				!strings.Contains(ipResult, "IP address: none") {
+				return service, nil
 			}
 		}
 	}
 
-	return "", fmt.Errorf("no active network interface found")
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service != "" && !strings.HasPrefix(service, "*") {
+			return service, nil
+		}
+	}
+
+	return "", fmt.Errorf("no active network service found")
+}
+
+func getActiveInterfaceName() (string, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		return getMacOSNetworkServiceName()
+	default:
+		interfaces, err := net.Interfaces()
+		if err != nil {
+			return "", err
+		}
+
+		for _, iface := range interfaces {
+			if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+				addrs, err := iface.Addrs()
+				if err != nil {
+					continue
+				}
+				for _, addr := range addrs {
+					if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+						if ipnet.IP.To4() != nil {
+							return iface.Name, nil
+						}
+					}
+				}
+			}
+		}
+		return "", fmt.Errorf("no active network interface found")
+	}
 }
 
 func getOrderedDNSOptions() []string {
@@ -363,7 +417,7 @@ func getDNSCommand(interfaceName string) *exec.Cmd {
 	case "darwin":
 		return exec.Command("networksetup", "-getdnsservers", interfaceName)
 	case "linux":
-		return exec.Command("cat", "/etc/resolv.conf")
+		return exec.Command("sh", "-c", "grep nameserver /etc/resolv.conf | awk '{print $2}'")
 	default:
 		return nil
 	}
