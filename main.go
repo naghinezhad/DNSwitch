@@ -26,34 +26,41 @@ var dnsServers = map[string][]string{
 
 var dnsOrder = []string{"403", "Shecan", "Begzar", "electrotm"}
 
+// NetworkInterface represents a network interface
+type NetworkInterface struct {
+	Name        string
+	DisplayName string
+	IsActive    bool
+	Type        string
+}
+
 // Main function and core logic
 func main() {
 	printWelcomeMessage()
 
-	interfaceName, err := getActiveInterfaceName()
-	if err != nil {
-		fmt.Printf("Error detecting active interface: %v\n", err)
-		return
-	}
-	fmt.Printf("Detected active interface: %s\n", interfaceName)
-
 	loadCustomDNS()
 
 	for {
-		displayCurrentDNS(interfaceName)
-		displayMenu()
-
-		choice := getUserChoice(len(dnsServers) + 4)
-
-		if handleUserChoice(choice, interfaceName) {
-			break
+		// Step 1: Select Network Interface
+		selectedInterface, err := selectNetworkInterface()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
 		}
 
-		fmt.Println()
-		time.Sleep(2 * time.Second)
-	}
+		if selectedInterface == "" {
+			fmt.Println("Thank you for using DNSwitch!")
+			return
+		}
 
-	fmt.Println("Thank you for using DNSwitch!")
+		fmt.Printf("Selected interface: %s\n\n", selectedInterface)
+
+		// Step 2: DNS Management for selected interface
+		manageDNSForInterface(selectedInterface)
+
+		fmt.Println("\nReturning to network selection...")
+		fmt.Println(strings.Repeat("-", 50))
+	}
 }
 
 func printWelcomeMessage() {
@@ -63,17 +70,183 @@ func printWelcomeMessage() {
 	fmt.Println()
 }
 
+func selectNetworkInterface() (string, error) {
+	interfaces, err := getAllNetworkInterfaces()
+	if err != nil {
+		return "", fmt.Errorf("failed to get network interfaces: %v", err)
+	}
+
+	if len(interfaces) == 0 {
+		return "", fmt.Errorf("no network interfaces found")
+	}
+
+	fmt.Println("Available Network Interfaces:")
+	fmt.Println(strings.Repeat("-", 40))
+
+	for i, iface := range interfaces {
+		status := "Inactive"
+		if iface.IsActive {
+			status = "Active"
+		}
+		fmt.Printf("%d. %s (%s) - %s [%s]\n",
+			i+1, iface.DisplayName, iface.Name, iface.Type, status)
+	}
+
+	fmt.Printf("%d. Exit\n", len(interfaces)+1)
+	fmt.Println()
+
+	choice := getUserChoice(len(interfaces) + 1)
+
+	if choice == len(interfaces)+1 {
+		return "", nil // Exit
+	}
+
+	return interfaces[choice-1].Name, nil
+}
+
+func getAllNetworkInterfaces() ([]NetworkInterface, error) {
+	switch runtime.GOOS {
+	case "windows":
+		return getWindowsNetworkInterfaces()
+	case "darwin":
+		return getMacOSNetworkInterfaces()
+	case "linux":
+		return getLinuxNetworkInterfaces()
+	default:
+		return nil, fmt.Errorf("OS %s is not supported", runtime.GOOS)
+	}
+}
+
+func getWindowsNetworkInterfaces() ([]NetworkInterface, error) {
+	cmd := exec.Command("powershell", "-Command",
+		"Get-NetAdapter | Select-Object Name,InterfaceDescription,Status,MediaType | ConvertTo-Json")
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var adapters []map[string]interface{}
+	if err := json.Unmarshal(output, &adapters); err != nil {
+		// Try single object
+		var adapter map[string]interface{}
+		if err := json.Unmarshal(output, &adapter); err != nil {
+			return nil, err
+		}
+		adapters = []map[string]interface{}{adapter}
+	}
+
+	var interfaces []NetworkInterface
+	for _, adapter := range adapters {
+		name := getString(adapter["Name"])
+		desc := getString(adapter["InterfaceDescription"])
+		status := getString(adapter["Status"])
+		mediaType := getString(adapter["MediaType"])
+
+		if name == "" {
+			continue
+		}
+
+		netType := determineNetworkType(desc, mediaType)
+		isActive := strings.ToLower(status) == "up"
+
+		interfaces = append(interfaces, NetworkInterface{
+			Name:        name,
+			DisplayName: desc,
+			IsActive:    isActive,
+			Type:        netType,
+		})
+	}
+
+	return interfaces, nil
+}
+
+func getMacOSNetworkInterfaces() ([]NetworkInterface, error) {
+	cmd := exec.Command("networksetup", "-listallnetworkservices")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	services := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(services) > 1 {
+		services = services[1:] // Skip header
+	}
+
+	var interfaces []NetworkInterface
+	for _, service := range services {
+		service = strings.TrimSpace(service)
+		if service == "" || strings.HasPrefix(service, "*") {
+			continue
+		}
+
+		isActive := checkMacOSInterfaceActive(service)
+		netType := determineMacOSNetworkType(service)
+
+		interfaces = append(interfaces, NetworkInterface{
+			Name:        service,
+			DisplayName: service,
+			IsActive:    isActive,
+			Type:        netType,
+		})
+	}
+
+	return interfaces, nil
+}
+
+func getLinuxNetworkInterfaces() ([]NetworkInterface, error) {
+	netInterfaces, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	var interfaces []NetworkInterface
+	for _, iface := range netInterfaces {
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // Skip loopback
+		}
+
+		isActive := iface.Flags&net.FlagUp != 0
+		netType := determineLinuxNetworkType(iface.Name)
+
+		interfaces = append(interfaces, NetworkInterface{
+			Name:        iface.Name,
+			DisplayName: iface.Name,
+			IsActive:    isActive,
+			Type:        netType,
+		})
+	}
+
+	return interfaces, nil
+}
+
+func manageDNSForInterface(interfaceName string) {
+	for {
+		displayCurrentDNS(interfaceName)
+		displayDNSMenu()
+
+		choice := getUserChoice(len(dnsServers) + 5)
+
+		if handleDNSChoice(choice, interfaceName) {
+			break
+		}
+
+		fmt.Println()
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func displayCurrentDNS(interfaceName string) {
 	currentDNSName, currentDNSAddresses := getCurrentDNS(interfaceName)
-	fmt.Printf("Current DNS: %s\n", currentDNSName)
+	fmt.Printf("Current DNS for %s: %s\n", interfaceName, currentDNSName)
 	if len(currentDNSAddresses) > 0 {
 		fmt.Printf("Addresses: %s\n", strings.Join(currentDNSAddresses, ", "))
 	}
 	fmt.Println()
 }
 
-func displayMenu() {
-	fmt.Println("Available options:")
+func displayDNSMenu() {
+	fmt.Println("DNS Options:")
 	options := getOrderedDNSOptions()
 	for i, name := range options {
 		ips := dnsServers[name]
@@ -82,11 +255,12 @@ func displayMenu() {
 	fmt.Printf("%d. Add custom DNS\n", len(options)+1)
 	fmt.Printf("%d. Remove custom DNS\n", len(options)+2)
 	fmt.Printf("%d. Clear all DNS settings\n", len(options)+3)
-	fmt.Printf("%d. Exit\n", len(options)+4)
+	fmt.Printf("%d. Back to network selection\n", len(options)+4)
+	fmt.Printf("%d. Exit\n", len(options)+5)
 	fmt.Println()
 }
 
-func handleUserChoice(choice int, interfaceName string) bool {
+func handleDNSChoice(choice int, interfaceName string) bool {
 	options := getOrderedDNSOptions()
 
 	switch {
@@ -111,12 +285,88 @@ func handleUserChoice(choice int, interfaceName string) bool {
 			fmt.Println("All DNS settings have been cleared.")
 		}
 	case choice == len(options)+4:
-		return true
+		return true // Back to network selection
+	case choice == len(options)+5:
+		os.Exit(0) // Exit program
 	}
 	return false
 }
 
-// DNS-related functions
+// Helper functions for network interface detection
+func getString(value interface{}) string {
+	if value == nil {
+		return ""
+	}
+	if str, ok := value.(string); ok {
+		return str
+	}
+	return fmt.Sprintf("%v", value)
+}
+
+func determineNetworkType(description, mediaType string) string {
+	desc := strings.ToLower(description)
+	media := strings.ToLower(mediaType)
+
+	if strings.Contains(desc, "wireless") || strings.Contains(desc, "wi-fi") ||
+		strings.Contains(desc, "wifi") {
+		return "Wi-Fi"
+	}
+	if strings.Contains(desc, "ethernet") || strings.Contains(media, "802.3") {
+		return "Ethernet"
+	}
+	if strings.Contains(desc, "bluetooth") {
+		return "Bluetooth"
+	}
+	if strings.Contains(desc, "virtual") || strings.Contains(desc, "loopback") {
+		return "Virtual"
+	}
+	return "Unknown"
+}
+
+func determineMacOSNetworkType(serviceName string) string {
+	name := strings.ToLower(serviceName)
+	if strings.Contains(name, "wi-fi") || strings.Contains(name, "wifi") {
+		return "Wi-Fi"
+	}
+	if strings.Contains(name, "ethernet") {
+		return "Ethernet"
+	}
+	if strings.Contains(name, "bluetooth") {
+		return "Bluetooth"
+	}
+	return "Unknown"
+}
+
+func determineLinuxNetworkType(interfaceName string) string {
+	name := strings.ToLower(interfaceName)
+	if strings.HasPrefix(name, "wl") || strings.HasPrefix(name, "wlan") {
+		return "Wi-Fi"
+	}
+	if strings.HasPrefix(name, "eth") || strings.HasPrefix(name, "en") {
+		return "Ethernet"
+	}
+	if strings.HasPrefix(name, "docker") || strings.HasPrefix(name, "br-") ||
+		strings.HasPrefix(name, "veth") {
+		return "Virtual"
+	}
+	return "Unknown"
+}
+
+func checkMacOSInterfaceActive(serviceName string) bool {
+	// Check if interface has IP address
+	cmd := exec.Command("networksetup", "-getinfo", serviceName)
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	result := string(output)
+	return strings.Contains(result, "IP address:") &&
+		!strings.Contains(result, "IP address: (null)") &&
+		!strings.Contains(result, "IP address: none")
+}
+
+// DNS-related functions (keeping existing functions)
 func getCurrentDNS(interfaceName string) (string, []string) {
 	cmd := getDNSCommand(interfaceName)
 	if cmd == nil {
@@ -224,85 +474,6 @@ func getUserChoice(maxChoice int) int {
 			return index
 		}
 		fmt.Println("Invalid input. Please enter a valid number.")
-	}
-}
-
-func getMacOSNetworkServiceName() (string, error) {
-	cmd := exec.Command("networksetup", "-listallnetworkservices")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("failed to list network services: %v", err)
-	}
-
-	services := strings.Split(strings.TrimSpace(string(output)), "\n")
-
-	if len(services) > 1 {
-		services = services[1:]
-	}
-
-	for _, service := range services {
-		service = strings.TrimSpace(service)
-		if service == "" || strings.HasPrefix(service, "*") {
-			continue
-		}
-
-		dnsCmd := exec.Command("networksetup", "-getdnsservers", service)
-		dnsOutput, err := dnsCmd.Output()
-		if err == nil {
-			dnsResult := strings.TrimSpace(string(dnsOutput))
-			if !strings.Contains(dnsResult, "There aren't any DNS Servers set") {
-				return service, nil
-			}
-		}
-
-		ipCmd := exec.Command("networksetup", "-getinfo", service)
-		ipOutput, err := ipCmd.Output()
-		if err == nil {
-			ipResult := string(ipOutput)
-			if strings.Contains(ipResult, "IP address:") &&
-				!strings.Contains(ipResult, "IP address: (null)") &&
-				!strings.Contains(ipResult, "IP address: none") {
-				return service, nil
-			}
-		}
-	}
-
-	for _, service := range services {
-		service = strings.TrimSpace(service)
-		if service != "" && !strings.HasPrefix(service, "*") {
-			return service, nil
-		}
-	}
-
-	return "", fmt.Errorf("no active network service found")
-}
-
-func getActiveInterfaceName() (string, error) {
-	switch runtime.GOOS {
-	case "darwin":
-		return getMacOSNetworkServiceName()
-	default:
-		interfaces, err := net.Interfaces()
-		if err != nil {
-			return "", err
-		}
-
-		for _, iface := range interfaces {
-			if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
-				addrs, err := iface.Addrs()
-				if err != nil {
-					continue
-				}
-				for _, addr := range addrs {
-					if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-						if ipnet.IP.To4() != nil {
-							return iface.Name, nil
-						}
-					}
-				}
-			}
-		}
-		return "", fmt.Errorf("no active network interface found")
 	}
 }
 
