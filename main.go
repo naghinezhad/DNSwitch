@@ -7,12 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// Constants and global variables
 const (
 	customDNSFile = "custom_dns.json"
 )
@@ -30,9 +30,6 @@ var dnsServers = map[string][]string{
 	"beshkan":   {"181.41.194.177", "181.41.194.186"},
 }
 
-var dnsOrder = []string{"403", "Shecan", "Begzar", "electrotm"}
-
-// NetworkInterface represents a network interface
 type NetworkInterface struct {
 	Name        string
 	DisplayName string
@@ -40,14 +37,12 @@ type NetworkInterface struct {
 	Type        string
 }
 
-// Main function and core logic
 func main() {
 	printWelcomeMessage()
 
 	loadCustomDNS()
 
 	for {
-		// Step 1: Select Network Interface
 		selectedInterface, err := selectNetworkInterface()
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
@@ -61,7 +56,6 @@ func main() {
 
 		fmt.Printf("Selected interface: %s\n\n", selectedInterface)
 
-		// Step 2: DNS Management for selected interface
 		manageDNSForInterface(selectedInterface)
 
 		fmt.Println("\nReturning to network selection...")
@@ -104,7 +98,7 @@ func selectNetworkInterface() (string, error) {
 	choice := getUserChoice(len(interfaces) + 1)
 
 	if choice == len(interfaces)+1 {
-		return "", nil // Exit
+		return "", nil
 	}
 
 	return interfaces[choice-1].Name, nil
@@ -134,7 +128,6 @@ func getWindowsNetworkInterfaces() ([]NetworkInterface, error) {
 
 	var adapters []map[string]interface{}
 	if err := json.Unmarshal(output, &adapters); err != nil {
-		// Try single object
 		var adapter map[string]interface{}
 		if err := json.Unmarshal(output, &adapter); err != nil {
 			return nil, err
@@ -176,7 +169,7 @@ func getMacOSNetworkInterfaces() ([]NetworkInterface, error) {
 
 	services := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(services) > 1 {
-		services = services[1:] // Skip header
+		services = services[1:]
 	}
 
 	var interfaces []NetworkInterface
@@ -209,7 +202,7 @@ func getLinuxNetworkInterfaces() ([]NetworkInterface, error) {
 	var interfaces []NetworkInterface
 	for _, iface := range netInterfaces {
 		if iface.Flags&net.FlagLoopback != 0 {
-			continue // Skip loopback
+			continue
 		}
 
 		isActive := iface.Flags&net.FlagUp != 0
@@ -231,7 +224,8 @@ func manageDNSForInterface(interfaceName string) {
 		displayCurrentDNS(interfaceName)
 		displayDNSMenu()
 
-		choice := getUserChoice(len(dnsServers) + 5)
+		totalOptions := len(dnsServers) + 4
+		choice := getUserChoice(totalOptions)
 
 		if handleDNSChoice(choice, interfaceName) {
 			break
@@ -254,51 +248,62 @@ func displayCurrentDNS(interfaceName string) {
 func displayDNSMenu() {
 	fmt.Println("DNS Options:")
 	options := getOrderedDNSOptions()
+
 	for i, name := range options {
 		ips := dnsServers[name]
-		fmt.Printf("%d. %s: %s\n", i+1, name, strings.Join(ips, ", "))
+		displayName := formatDNSName(name)
+		fmt.Printf("%d. %s: %s\n", i+1, displayName, strings.Join(ips, ", "))
 	}
-	fmt.Printf("%d. Add custom DNS\n", len(options)+1)
-	fmt.Printf("%d. Remove custom DNS\n", len(options)+2)
-	fmt.Printf("%d. Clear all DNS settings\n", len(options)+3)
-	fmt.Printf("%d. Back to network selection\n", len(options)+4)
-	fmt.Printf("%d. Exit\n", len(options)+5)
+
+	baseIndex := len(options)
+	fmt.Printf("%d. Add custom DNS\n", baseIndex+1)
+	fmt.Printf("%d. Remove custom DNS\n", baseIndex+2)
+	fmt.Printf("%d. Clear all DNS settings\n", baseIndex+3)
+	fmt.Printf("%d. Back to network selection\n", baseIndex+4)
 	fmt.Println()
 }
 
 func handleDNSChoice(choice int, interfaceName string) bool {
 	options := getOrderedDNSOptions()
+	baseIndex := len(options)
 
 	switch {
-	case choice <= len(options):
+	case choice <= len(options) && choice >= 1:
 		selectedDNS := options[choice-1]
 		ips := dnsServers[selectedDNS]
 		err := setDNS(interfaceName, ips...)
 		if err != nil {
 			fmt.Printf("Error setting DNS: %v\n", err)
 		} else {
-			fmt.Printf("DNS changed to %s (%s).\n", selectedDNS, strings.Join(ips, ", "))
+			displayName := formatDNSName(selectedDNS)
+			fmt.Printf("DNS changed to %s (%s).\n", displayName, strings.Join(ips, ", "))
 		}
-	case choice == len(options)+1:
+	case choice == baseIndex+1:
 		addCustomDNS()
-	case choice == len(options)+2:
+	case choice == baseIndex+2:
 		removeCustomDNS()
-	case choice == len(options)+3:
+	case choice == baseIndex+3:
 		err := clearAllDNS(interfaceName)
 		if err != nil {
 			fmt.Printf("Error clearing DNS settings: %v\n", err)
 		} else {
 			fmt.Println("All DNS settings have been cleared.")
 		}
-	case choice == len(options)+4:
-		return true // Back to network selection
-	case choice == len(options)+5:
-		os.Exit(0) // Exit program
+	case choice == baseIndex+4:
+		return true
+	default:
+		fmt.Println("Invalid choice. Please try again.")
 	}
 	return false
 }
 
-// Helper functions for network interface detection
+func formatDNSName(name string) string {
+	if name == "403" {
+		return "403"
+	}
+	return strings.Title(name)
+}
+
 func getString(value interface{}) string {
 	if value == nil {
 		return ""
@@ -359,7 +364,6 @@ func determineLinuxNetworkType(interfaceName string) string {
 }
 
 func checkMacOSInterfaceActive(serviceName string) bool {
-	// Check if interface has IP address
 	cmd := exec.Command("networksetup", "-getinfo", serviceName)
 	output, err := cmd.Output()
 	if err != nil {
@@ -372,7 +376,6 @@ func checkMacOSInterfaceActive(serviceName string) bool {
 		!strings.Contains(result, "IP address: none")
 }
 
-// DNS-related functions (keeping existing functions)
 func getCurrentDNS(interfaceName string) (string, []string) {
 	cmd := getDNSCommand(interfaceName)
 	if cmd == nil {
@@ -427,17 +430,47 @@ func addCustomDNS() {
 	var name, ip1, ip2 string
 
 	fmt.Print("Enter DNS name: ")
-	fmt.Scanln(&name)
+	if _, err := fmt.Scanln(&name); err != nil {
+		fmt.Printf("Error reading DNS name: %v\n", err)
+		return
+	}
 
 	fmt.Print("Enter first IP address: ")
-	fmt.Scanln(&ip1)
+	if _, err := fmt.Scanln(&ip1); err != nil {
+		fmt.Printf("Error reading first IP address: %v\n", err)
+		return
+	}
 
 	fmt.Print("Enter second IP address: ")
-	fmt.Scanln(&ip2)
+	if _, err := fmt.Scanln(&ip2); err != nil {
+		fmt.Printf("Error reading second IP address: %v\n", err)
+		return
+	}
 
+	if strings.TrimSpace(name) == "" {
+		fmt.Println("DNS name cannot be empty.")
+		return
+	}
+
+	if strings.TrimSpace(ip1) == "" || strings.TrimSpace(ip2) == "" {
+		fmt.Println("IP addresses cannot be empty.")
+		return
+	}
+
+	if net.ParseIP(ip1) == nil {
+		fmt.Printf("Invalid first IP address: %s\n", ip1)
+		return
+	}
+
+	if net.ParseIP(ip2) == nil {
+		fmt.Printf("Invalid second IP address: %s\n", ip2)
+		return
+	}
+
+	name = strings.ToLower(strings.TrimSpace(name))
 	dnsServers[name] = []string{ip1, ip2}
 	saveCustomDNS()
-	fmt.Printf("Custom DNS '%s' added successfully.\n", name)
+	fmt.Printf("Custom DNS '%s' added successfully.\n", formatDNSName(name))
 }
 
 func removeCustomDNS() {
@@ -451,7 +484,8 @@ func removeCustomDNS() {
 	fmt.Println("Custom DNS servers:")
 	for i, name := range customDNS {
 		ips := dnsServers[name]
-		fmt.Printf("%d. %s: %s\n", i+1, name, strings.Join(ips, ", "))
+		displayName := formatDNSName(name)
+		fmt.Printf("%d. %s: %s\n", i+1, displayName, strings.Join(ips, ", "))
 	}
 	fmt.Printf("%d. Exit\n", len(customDNS)+1)
 
@@ -465,56 +499,65 @@ func removeCustomDNS() {
 	name := customDNS[choice-1]
 	delete(dnsServers, name)
 	saveCustomDNS()
-	fmt.Printf("Custom DNS '%s' removed successfully.\n", name)
+	fmt.Printf("Custom DNS '%s' removed successfully.\n", formatDNSName(name))
 }
 
-// Helper functions
 func getUserChoice(maxChoice int) int {
 	for {
 		var choice string
-		fmt.Print("Please enter the number of your choice: ")
-		fmt.Scanln(&choice)
+		fmt.Printf("Please enter your choice (1-%d): ", maxChoice)
+		if _, err := fmt.Scanln(&choice); err != nil {
+			fmt.Printf("Error reading input: %v\n", err)
+			continue
+		}
+
+		choice = strings.TrimSpace(choice)
+		if choice == "" {
+			fmt.Println("Input cannot be empty. Please enter a valid number.")
+			continue
+		}
 
 		index, err := strconv.Atoi(choice)
 		if err == nil && index >= 1 && index <= maxChoice {
 			return index
 		}
-		fmt.Println("Invalid input. Please enter a valid number.")
+		fmt.Printf("Invalid input '%s'. Please enter a number between 1 and %d.\n", choice, maxChoice)
 	}
 }
 
 func getOrderedDNSOptions() []string {
-	options := make([]string, 0, len(dnsServers))
+	var options []string
 
-	// First, add the default DNS options in the specified order
-	for _, name := range dnsOrder {
-		if _, exists := dnsServers[name]; exists {
-			options = append(options, name)
-		}
-	}
-
-	// Then, add any custom DNS options
 	for name := range dnsServers {
-		if !isDefaultDNS(name) {
-			options = append(options, name)
-		}
+		options = append(options, name)
 	}
+
+	sort.Strings(options)
 
 	return options
 }
 
 func getCustomDNSList() []string {
-	customDNS := make([]string, 0)
+	defaultDNSNames := map[string]bool{
+		"403":       true,
+		"shecan":    true,
+		"begzar":    true,
+		"electrotm": true,
+		"dynx":      true,
+		"radar":     true,
+		"shatel":    true,
+		"level3":    true,
+		"shelter":   true,
+		"beshkan":   true,
+	}
+
+	var customDNS []string
 	for name := range dnsServers {
-		if !isDefaultDNS(name) {
+		if !defaultDNSNames[name] {
 			customDNS = append(customDNS, name)
 		}
 	}
 	return customDNS
-}
-
-func isDefaultDNS(name string) bool {
-	return containsString(dnsOrder, name)
 }
 
 func removeDuplicates(slice []string) []string {
@@ -547,7 +590,6 @@ func containsAny(slice []string, items []string) bool {
 	return false
 }
 
-// File operations
 func loadCustomDNS() {
 	data, err := os.ReadFile(customDNSFile)
 	if err != nil {
@@ -562,14 +604,27 @@ func loadCustomDNS() {
 	}
 
 	for name, ips := range customDNS {
-		dnsServers[name] = ips
+		dnsServers[strings.ToLower(name)] = ips
 	}
 }
 
 func saveCustomDNS() {
+	defaultDNSNames := map[string]bool{
+		"403":       true,
+		"shecan":    true,
+		"begzar":    true,
+		"electrotm": true,
+		"dynx":      true,
+		"radar":     true,
+		"shatel":    true,
+		"level3":    true,
+		"shelter":   true,
+		"beshkan":   true,
+	}
+
 	customDNS := make(map[string][]string)
 	for name, ips := range dnsServers {
-		if !isDefaultDNS(name) {
+		if !defaultDNSNames[name] {
 			customDNS[name] = ips
 		}
 	}
@@ -586,7 +641,6 @@ func saveCustomDNS() {
 	}
 }
 
-// OS-specific functions
 func getDNSCommand(interfaceName string) *exec.Cmd {
 	switch runtime.GOOS {
 	case "windows":
