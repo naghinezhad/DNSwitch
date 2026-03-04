@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,13 +127,13 @@ func getWindowsNetworkInterfaces() ([]NetworkInterface, error) {
 		return nil, err
 	}
 
-	var adapters []map[string]interface{}
+	var adapters []map[string]any
 	if err := json.Unmarshal(output, &adapters); err != nil {
-		var adapter map[string]interface{}
+		var adapter map[string]any
 		if err := json.Unmarshal(output, &adapter); err != nil {
 			return nil, err
 		}
-		adapters = []map[string]interface{}{adapter}
+		adapters = []map[string]any{adapter}
 	}
 
 	var interfaces []NetworkInterface
@@ -304,7 +305,7 @@ func formatDNSName(name string) string {
 	return strings.Title(name)
 }
 
-func getString(value interface{}) string {
+func getString(value any) string {
 	if value == nil {
 		return ""
 	}
@@ -573,12 +574,7 @@ func removeDuplicates(slice []string) []string {
 }
 
 func containsString(slice []string, item string) bool {
-	for _, a := range slice {
-		if a == item {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, item)
 }
 
 func containsAny(slice []string, items []string) bool {
@@ -688,11 +684,11 @@ func setDNSMacOS(interfaceName string, ips ...string) error {
 }
 
 func setDNSLinux(ips ...string) error {
-	content := ""
+	var content strings.Builder
 	for _, ip := range ips {
-		content += fmt.Sprintf("nameserver %s\n", ip)
+		fmt.Fprintf(&content, "nameserver %s\n", ip)
 	}
-	cmd := exec.Command("sudo", "sh", "-c", fmt.Sprintf("echo '%s' > /etc/resolv.conf", content))
+	cmd := exec.Command("sudo", "sh", "-c", fmt.Sprintf("echo '%s' > /etc/resolv.conf", content.String()))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, string(output))
