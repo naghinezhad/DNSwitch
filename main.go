@@ -14,9 +14,7 @@ import (
 	"time"
 )
 
-const (
-	customDNSFile = "custom_dns.json"
-)
+const customDNSFile = "custom_dns.json"
 
 var dnsServers = map[string][]string{
 	"403":       {"10.202.10.202", "10.202.10.102"},
