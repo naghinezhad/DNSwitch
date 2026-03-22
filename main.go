@@ -17,16 +17,17 @@ import (
 const customDNSFile = "custom_dns.json"
 
 var dnsServers = map[string][]string{
-	"403":       {"10.202.10.202", "10.202.10.102"},
-	"shecan":    {"178.22.122.100", "185.51.200.2"},
-	"begzar":    {"185.55.226.26", "185.55.225.25"},
-	"electrotm": {"78.157.42.101", "78.157.42.100"},
-	"dynx":      {"10.70.95.150", "10.70.95.162"},
-	"radar":     {"10.202.10.10", "10.202.10.11"},
-	"shatel":    {"85.15.1.14", "85.15.1.15"},
-	"level3":    {"209.244.0.3", "209.244.0.4"},
-	"shelter":   {"94.103.125.157", "94.103.125.158"},
-	"beshkan":   {"181.41.194.177", "181.41.194.186"},
+	"403":        {"10.202.10.202", "10.202.10.102"},
+	"shecan":     {"178.22.122.100", "185.51.200.2"},
+	"shecan-pro": {"178.22.122.101", "185.51.200.1"},
+	"begzar":     {"185.55.226.26", "185.55.225.25"},
+	"electrotm":  {"78.157.42.101", "78.157.42.100"},
+	"dynx":       {"10.70.95.150", "10.70.95.162"},
+	"radar":      {"10.202.10.10", "10.202.10.11"},
+	"shatel":     {"85.15.1.14", "85.15.1.15"},
+	"level3":     {"209.244.0.3", "209.244.0.4"},
+	"shelter":    {"94.103.125.157", "94.103.125.158"},
+	"beshkan":    {"181.41.194.177", "181.41.194.186"},
 }
 
 type NetworkInterface struct {
@@ -538,16 +539,17 @@ func getOrderedDNSOptions() []string {
 
 func getCustomDNSList() []string {
 	defaultDNSNames := map[string]bool{
-		"403":       true,
-		"shecan":    true,
-		"begzar":    true,
-		"electrotm": true,
-		"dynx":      true,
-		"radar":     true,
-		"shatel":    true,
-		"level3":    true,
-		"shelter":   true,
-		"beshkan":   true,
+		"403":        true,
+		"shecan":     true,
+		"shecan-pro": true,
+		"begzar":     true,
+		"electrotm":  true,
+		"dynx":       true,
+		"radar":      true,
+		"shatel":     true,
+		"level3":     true,
+		"shelter":    true,
+		"beshkan":    true,
 	}
 
 	var customDNS []string
@@ -604,16 +606,17 @@ func loadCustomDNS() {
 
 func saveCustomDNS() {
 	defaultDNSNames := map[string]bool{
-		"403":       true,
-		"shecan":    true,
-		"begzar":    true,
-		"electrotm": true,
-		"dynx":      true,
-		"radar":     true,
-		"shatel":    true,
-		"level3":    true,
-		"shelter":   true,
-		"beshkan":   true,
+		"403":        true,
+		"shecan":     true,
+		"shecan-pro": true,
+		"begzar":     true,
+		"electrotm":  true,
+		"dynx":       true,
+		"radar":      true,
+		"shatel":     true,
+		"level3":     true,
+		"shelter":    true,
+		"beshkan":    true,
 	}
 
 	customDNS := make(map[string][]string)
