@@ -20,7 +20,7 @@ jobs:
         with:
           go-version: "1.26.3"
 
-      - name: Build binary and zip
+      - name: Build binary
         run: |
           set -e
           case "${{ matrix.os }}" in
@@ -42,12 +42,10 @@ jobs:
               ;;
           esac
 
-          GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o DNSwitch${ext} .
-          mkdir -p release
-          zip -j release/DNSwitch-${{ matrix.os }}.zip DNSwitch${ext}
+          GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o release/DNSwitch-${{ matrix.os }}${ext} .
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: DNSwitch-${{ matrix.os }}
-          path: release/DNSwitch-${{ matrix.os }}.zip
+          path: release/DNSwitch-${{ matrix.os }}*
