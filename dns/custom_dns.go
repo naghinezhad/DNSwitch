@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	_ "embed"
 )
+
+//go:embed custom_dns.json
+var embeddedCustomDNS []byte
 
 // save custom dns
 func saveCustomDNS() {
@@ -46,7 +51,10 @@ func saveCustomDNS() {
 func LoadCustomDNS() {
 	data, err := os.ReadFile(customDNSFile)
 	if err != nil {
-		return
+		if len(embeddedCustomDNS) == 0 {
+			return
+		}
+		data = embeddedCustomDNS
 	}
 
 	var customDNS map[string][]string
