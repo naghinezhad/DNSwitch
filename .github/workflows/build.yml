@@ -13,12 +13,12 @@ jobs:
         os: [linux, windows, darwin]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v6.0.3
 
       - name: Set up Go
         uses: actions/setup-go@v6.4.0
         with:
-          go-version: "1.26.3"
+          go-version: "1.26.4"
 
       - name: Build binary
         run: |
